@@ -1,8 +1,10 @@
 package wolforce.imageclipboard;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.Graphics;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Toolkit;
@@ -22,8 +24,6 @@ import java.util.prefs.Preferences;
 import java.util.stream.Collectors;
 
 import javax.imageio.ImageIO;
-import javax.swing.ImageIcon;
-import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
@@ -31,8 +31,9 @@ import javax.swing.JPopupMenu;
 
 public class ImageClipboard {
 
+	static int w = 1, h = 1;
 	static JFrame frame;
-	static JPanel imgsPanel;
+	static Container imgsPanel;
 	static GridLayout layout;
 	static LinkedList<String> filePaths = new LinkedList<>();
 	final static String PREF_NAME = "filelist";
@@ -40,6 +41,8 @@ public class ImageClipboard {
 	public static void main(String[] args) throws IOException {
 
 		frame = new JFrame("Image Clipboard");
+//		frame.setUndecorated(true);
+//		frame.setBackground(new Color(0, 0, 0, 0));
 		frame.setPreferredSize(new Dimension(400, 400));
 		frame.setIconImage(ImageIO.read(ClassLoader.getSystemResource("icon.png")));
 		frame.setDropTarget(new DropTarget(frame, new DropTargetHandler()));
@@ -47,10 +50,15 @@ public class ImageClipboard {
 		Container pane = frame.getContentPane();
 		pane.setLayout(new BorderLayout(10, 10));
 
-		imgsPanel = new JPanel();
+		imgsPanel = new Container();
 		layout = new GridLayout();
 		imgsPanel.setLayout(layout);
 		pane.add(imgsPanel, BorderLayout.CENTER);
+
+		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+		frame.pack();
+		frame.setLocationRelativeTo(null);
+		frame.setVisible(true);
 
 		for (String path : readPrefs()) {
 			filePaths.add(path);
@@ -62,15 +70,51 @@ public class ImageClipboard {
 			}
 		}
 
-		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		frame.pack();
-		frame.setLocationRelativeTo(null);
-		frame.setVisible(true);
-
+		refreshLayout();
 	}
-	
-	private void refreshLayout() {
-		layout.get
+
+	private static void refreshLayout() {
+		int listSize = filePaths.size();
+		w = 1;
+		h = 1;
+		while (w * h < listSize) {
+			if ((w + 1) * h == listSize)
+				w++;
+			else if (w > h)
+				h++;
+			else
+				w++;
+		}
+		layout.setColumns(w);
+		layout.setRows(h);
+	}
+
+	static class MyButton extends JPanel {
+
+		private static final long serialVersionUID = 1L;
+
+		private Image image;
+
+		public MyButton(Image image) {
+			this.image = image;
+			setBackground(new Color(0, 0, 0, 0));
+		}
+
+		@Override
+		public void paint(Graphics g) {
+			super.paint(g);
+			g.clearRect(0, 0, getWidth(), getHeight());
+
+			double w1 = image.getWidth(null);
+			double h1 = image.getHeight(null);
+			double w2 = imgsPanel.getWidth() / w;
+			double h2 = imgsPanel.getHeight() / h;
+
+			double f1 = w1 > h1 ? h1 / w1 : w1 / h1;
+			double f2 = w2 > h2 ? h2 : w2;
+
+			g.drawImage(image, 0, 0, (int) (f1 * f2), (int) (f1 * f2), null);
+		}
 	}
 
 	static void addImage(final String path, final Image i) {
@@ -78,7 +122,7 @@ public class ImageClipboard {
 //		BufferedImage i = new BufferedImage(_i.getWidth(null), _i.getHeight(null), BufferedImage.TYPE_INT_ARGB);
 //		i.getGraphics().drawImage(_i, 0, 0, frame);
 
-		final JButton button = new JButton(new ImageIcon(i));
+		final MyButton button = new MyButton(i);
 
 		button.addMouseListener(new MouseAdapter() {
 			@Override
@@ -95,8 +139,9 @@ public class ImageClipboard {
 						imgsPanel.remove(button);
 						filePaths.remove(path);
 						writePrefs();
-						frame.revalidate();
-						frame.repaint();
+						refreshLayout();
+						imgsPanel.revalidate();
+						imgsPanel.repaint();
 					});
 					menu.add(removeItem);
 					menu.show(e.getComponent(), e.getX(), e.getY());
@@ -106,13 +151,23 @@ public class ImageClipboard {
 		});
 
 		imgsPanel.add(button);
-		frame.revalidate();
+		refreshLayout();
+		imgsPanel.revalidate();
+		imgsPanel.repaint();
 		frame.pack();
+		refreshLayout();
+		imgsPanel.revalidate();
+		imgsPanel.repaint();
 	}
 
 	static String[] readPrefs() {
 		Preferences prefs = Preferences.userNodeForPackage(wolforce.imageclipboard.ImageClipboard.class);
-		return prefs.get(PREF_NAME, "").split(";");
+		String s = prefs.get(PREF_NAME, "");
+		if (s.startsWith(";"))
+			s = s.substring(1);
+		if (s.endsWith(";"))
+			s = s.substring(-1);
+		return s.split(";");
 	}
 
 	static void writePrefs() {
@@ -137,6 +192,7 @@ public class ImageClipboard {
 					addImage(path, image);
 					filePaths.add(path);
 					writePrefs();
+					refreshLayout();
 				}
 				dtde.dropComplete(true);
 
