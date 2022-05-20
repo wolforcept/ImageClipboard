@@ -5,9 +5,12 @@ import java.awt.Color;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.ClipboardOwner;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
@@ -16,10 +19,14 @@ import java.awt.dnd.DropTargetAdapter;
 import java.awt.dnd.DropTargetDropEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.image.BufferedImage;
+import java.awt.image.ImageObserver;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.prefs.Preferences;
 import java.util.stream.Collectors;
 
@@ -41,8 +48,6 @@ public class ImageClipboard {
 	public static void main(String[] args) throws IOException {
 
 		frame = new JFrame("Image Clipboard");
-//		frame.setUndecorated(true);
-//		frame.setBackground(new Color(0, 0, 0, 0));
 		frame.setPreferredSize(new Dimension(400, 400));
 		frame.setIconImage(ImageIO.read(ClassLoader.getSystemResource("icon.png")));
 		frame.setDropTarget(new DropTarget(frame, new DropTargetHandler()));
@@ -61,14 +66,15 @@ public class ImageClipboard {
 		frame.setVisible(true);
 
 		for (String path : readPrefs()) {
-			filePaths.add(path);
 			System.out.println("reading: " + path);
 			try {
 				addImage(path, ImageIO.read(new File(path)));
+				filePaths.add(path);
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
+		writePrefs();
 
 		refreshLayout();
 	}
@@ -97,23 +103,16 @@ public class ImageClipboard {
 
 		public MyButton(Image image) {
 			this.image = image;
-			setBackground(new Color(0, 0, 0, 0));
 		}
 
 		@Override
 		public void paint(Graphics g) {
-			super.paint(g);
-			g.clearRect(0, 0, getWidth(), getHeight());
+			g.setColor(new Color(54, 57, 63));
+			g.fillRect(0, 0, getWidth(), getHeight());
 
-			double w1 = image.getWidth(null);
-			double h1 = image.getHeight(null);
-			double w2 = imgsPanel.getWidth() / w;
-			double h2 = imgsPanel.getHeight() / h;
-
-			double f1 = w1 > h1 ? h1 / w1 : w1 / h1;
-			double f2 = w2 > h2 ? h2 : w2;
-
-			g.drawImage(image, 0, 0, (int) (f1 * f2), (int) (f1 * f2), null);
+			if (image != null) {
+				g.drawImage(image, 0, 0, getWidth(), getHeight(), null);
+			}
 		}
 	}
 
@@ -130,7 +129,7 @@ public class ImageClipboard {
 				switch (e.getButton()) {
 				case MouseEvent.BUTTON1:
 					frame.setState(JFrame.ICONIFIED);
-					setClipboard(i);
+					setClipboard(i, path);
 					break;
 				case MouseEvent.BUTTON3:
 					JPopupMenu menu = new JPopupMenu();
@@ -150,14 +149,23 @@ public class ImageClipboard {
 			}
 		});
 
+		new Thread(() -> {
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException e1) {
+			}
+			imgsPanel.invalidate();
+			frame.pack();
+			refreshLayout();
+			imgsPanel.revalidate();
+			imgsPanel.repaint();
+		}).start();
+		imgsPanel.invalidate();
 		imgsPanel.add(button);
 		refreshLayout();
 		imgsPanel.revalidate();
 		imgsPanel.repaint();
-		frame.pack();
-		refreshLayout();
-		imgsPanel.revalidate();
-		imgsPanel.repaint();
+
 	}
 
 	static String[] readPrefs() {
@@ -226,24 +234,63 @@ public class ImageClipboard {
 	 *
 	 * @param image - the image to be added to the system clipboard
 	 */
-	public static void writeToClipboard(Image image) {
-		try {
-			if (image == null)
-				throw new IllegalArgumentException("Image can't be null");
+//	public static void writeToClipboard(Image image) {
+//		try {
+//			if (image == null)
+//				throw new IllegalArgumentException("Image can't be null");
+//
+//			BufferedImage buffered = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+//			Graphics2D g2 = buffered.createGraphics();
+//			g2.setColor(Color.WHITE);
+//			g2.fillRect(0, 0, w, h);
+//			g2.drawImage(image, 0, 0, w, h, null);
+//			Thread.sleep(100);
+//			ImageTransferable transferable = new ImageTransferable(buffered);
+//			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferable, null);
+//		} catch (Exception e) {
+//			e.printStackTrace();
+//		}
+//	}
+	public static void getBufferedImage(Image image, Consumer<Image> imageConsumer) {
 
-			ImageTransferable transferable = new ImageTransferable(image);
-			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(transferable, null);
-		} catch (Exception e) {
-			e.printStackTrace();
+		int w = image.getWidth(null);
+		int h = image.getHeight(null);
+		BufferedImage buffered = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g2 = buffered.createGraphics();
+		g2.setColor(new Color(0, 0, 0, 0));
+		g2.fillRect(0, 0, w, h);
+		if (g2.drawImage(image, 0, 0, w, h, (img2, info2, x2, y2, w2, h2) -> {
+			if (info2 == ImageObserver.ALLBITS) {
+				g2.dispose();
+				imageConsumer.accept(img2);
+				return false;
+			}
+			return true;
+		})) {
+			g2.dispose();
+			imageConsumer.accept(buffered);
 		}
 	}
 
-	// code below from exampledepot.com
-	// This method writes a image to the system clipboard.
-	// otherwise it returns null.
-	public static void setClipboard(Image image) {
-		ImageSelection imgSel = new ImageSelection(image);
-		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(imgSel, null);
+	public static void setClipboard(Image image, String path) {
+//		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new ImageSelection(image), null);
+//		getBufferedImage(image, (buffered) -> {
+//			ImageSelection imgSel = new ImageSelection(buffered);
+//			Toolkit.getDefaultToolkit().getSystemClipboard().setContents(imgSel, null);
+//		});
+
+		File file = new File(path);
+		List<File> listOfFiles = new ArrayList<File>();
+		listOfFiles.add(file);
+
+		FileTransferable<File> ft = new FileTransferable<File>(listOfFiles);
+
+		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(ft, new ClipboardOwner() {
+			@Override
+			public void lostOwnership(Clipboard clipboard, Transferable contents) {
+				System.out.println("Lost ownership");
+			}
+		});
 	}
 
 	// This class is used to hold an image while on the clipboard.
@@ -294,6 +341,30 @@ public class ImageClipboard {
 
 		public DataFlavor[] getTransferDataFlavors() {
 			return new DataFlavor[] { DataFlavor.imageFlavor };
+		}
+	}
+
+	public static class FileTransferable<T> implements Transferable {
+
+		private List<T> listOfFiles;
+
+		public FileTransferable(List<T> listOfFiles) {
+			this.listOfFiles = listOfFiles;
+		}
+
+		@Override
+		public DataFlavor[] getTransferDataFlavors() {
+			return new DataFlavor[] { DataFlavor.javaFileListFlavor };
+		}
+
+		@Override
+		public boolean isDataFlavorSupported(DataFlavor flavor) {
+			return DataFlavor.javaFileListFlavor.equals(flavor);
+		}
+
+		@Override
+		public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException, IOException {
+			return listOfFiles;
 		}
 	}
 
